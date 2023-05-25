@@ -4,3 +4,5 @@ dependencies:
 - scikit-learn
 - notebook
 - ipykernel
+- requests
+- conda-forge::airflow

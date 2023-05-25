@@ -10,9 +10,6 @@ __pycache__/
 .idea/
 .vscode/
 
-# I/O folders
-data/
-
 # Distribution / packaging
 .Python
 build/
