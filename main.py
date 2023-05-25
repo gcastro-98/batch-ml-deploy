@@ -1,19 +1,43 @@
-import pandas as pd
+"""
+Implementation of the simple batch mode ML DAG.
+
+Bear in mind this module must be placed at ./dags to be found by airflow.
+Besides, to set up Airflow variables we can export them using Environment
+Variables:
+
+```bash
+export AIRFLOW_VAR_VARIABLES='{"local_path":".","train_url":"https://ub-2021.s3-eu-west-1.amazonaws.com/data/data.txt","predict_url":"https://ub-2021.s3-eu-west-1.amazonaws.com/data/predict.csv"}'
+```
+
+This way, the variable 'variables' will be found in Airflow using:
+
+```python
+from airflow.models import Variable
+airflow_json = Variable.get("variables", deserialize_json=True)
+print(airflow_json["train_url"])
+```
+
+"""
+
 import os
+from datetime import datetime, timedelta
+import pandas as pd
+from requests import get
+import pickle
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.utils import shuffle
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
-from datetime import datetime, timedelta
 
-import model
-import download
+RANDOM_STATE: int = 123
 
 default_args = {
-    'owner': 'Gerard & Pol',
+    'owner': 'airflow',  # we use the default Airflow user (with same passwd!)
     'depends_on_past': False,
     'start_date': datetime.today(),
-    'email': ['gcastrca25@alumnes.ub.edu'],
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
@@ -24,11 +48,60 @@ default_args = {
     # whenever the day is MONDAY at 20:00h (8pm).
 }
 
-local_path: str = os.getcwd()
+airflow_json = Variable.get("variables", deserialize_json=True)
+local_path: str = airflow_json["local_path"]
+train_url: str = airflow_json["train_url"]
+predict_url: str = airflow_json["predict_url"]
 
+
+# ##########################################################################
+# DOWNLOAD RELATED AUXILIARY FUNCTIONS
+# ##########################################################################
+
+def _from_url_to_csv(file_url: str, file_name: str) -> None:
+    pd.read_csv(file_url).to_csv(os.path.join(local_path, f'{file_name}.csv'))
+
+
+def download_train_files() -> None:
+    # we have to do it this way because train_url is a .txt url
+    # (containing 2 .csv urls)
+    for i, _train_url in enumerate(get(train_url).text.split("\n")):
+        _from_url_to_csv(_train_url, f'train{i+1}')
+
+
+def download_prediction_file() -> None:
+    _from_url_to_csv(predict_url, 'predict')
+
+
+# ##########################################################################
+# MODEL RELATED AUXILIARY FUNCTIONS
+# ##########################################################################
+
+
+def model_serialization(train: pd.DataFrame) -> None:
+    features: pd.DataFrame = train.drop(["Species"], axis=1)
+    labels: pd.Series = train["Species"]
+
+    features, labels = shuffle(features, labels, random_state=RANDOM_STATE)
+
+    clf = LogisticRegression(random_state=RANDOM_STATE)
+    clf.fit(features, labels)
+
+    with open('model.pkl', 'wb') as serialized_model:
+        pickle.dump(clf, serialized_model)
+
+
+def model_load() -> LogisticRegression:
+    with open('model.pkl', 'rb') as serialized_model:
+        return pickle.load(serialized_model)
+
+
+# ##########################################################################
+# DAG RELATED FUNCTIONS
+# ##########################################################################
 
 def task_1():
-    download.train_files()
+    download_train_files()
 
 
 def task_2() -> None:
@@ -36,15 +109,15 @@ def task_2() -> None:
     _train_2 = pd.read_csv(os.path.join(local_path, 'train2.csv'))
     train: pd.DataFrame = pd.concat([_train_1, _train_2])
 
-    model.serialize(train)
+    model_serialization(train)
 
 
 def task_3() -> None:
-    download.prediction_file()
+    download_prediction_file()
 
 
 def task_4() -> None:
-    clf = model.load()
+    clf = model_load()
     _pred_df = pd.read_csv(os.path.join(local_path, 'predict.csv'))
     prediction_df = pd.DataFrame({"Prediction": clf.predict(_pred_df)})
     prediction_df.to_csv(os.path.join(local_path, 'prediction.csv'))
@@ -52,6 +125,8 @@ def task_4() -> None:
     # we finally print the predictions
     print(prediction_df)
 
+
+# DAG definition
 
 dag = DAG(
     "ml_batch_mode", catchup=False,
