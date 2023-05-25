@@ -10,6 +10,13 @@ __pycache__/
 .idea/
 .vscode/
 
+# Airflow stuff
+dags/
+config/
+logs/
+plugins/
+.env
+
 # Distribution / packaging
 .Python
 build/

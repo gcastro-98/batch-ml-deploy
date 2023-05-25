@@ -2,21 +2,7 @@
 Implementation of the simple batch mode ML DAG.
 
 Bear in mind this module must be placed at ./dags to be found by airflow.
-Besides, to set up Airflow variables we can export them using Environment
-Variables:
-
-```bash
-export AIRFLOW_VAR_VARIABLES='{"local_path":".","train_url":"https://ub-2021.s3-eu-west-1.amazonaws.com/data/data.txt","predict_url":"https://ub-2021.s3-eu-west-1.amazonaws.com/data/predict.csv"}'
-```
-
-This way, the variable 'variables' will be found in Airflow using:
-
-```python
-from airflow.models import Variable
-airflow_json = Variable.get("variables", deserialize_json=True)
-print(airflow_json["train_url"])
-```
-
+Besides, to set up Airflow variables we can export them using the GUI.
 """
 
 import os
@@ -37,21 +23,21 @@ RANDOM_STATE: int = 123
 default_args = {
     'owner': 'airflow',  # we use the default Airflow user (with same passwd!)
     'depends_on_past': False,
-    'start_date': datetime.today(),
+    'start_date': datetime(2023, 5, 25),
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
-    # remind the CRON fashion is: minute hour day month WEEKDAY
-    'schedule_interval': '0 20 * * MON',
+    # remind the CRON fashion is: minute hour day month weekday
+    'schedule_interval': '0 20 * * 1',
     # then, means every day and month
-    # whenever the day is MONDAY at 20:00h (8pm).
+    # whenever the day is 1/7 (Monday) at 20:00h (8pm).
 }
 
-airflow_json = Variable.get("variables", deserialize_json=True)
-local_path: str = airflow_json["local_path"]
-train_url: str = airflow_json["train_url"]
-predict_url: str = airflow_json["predict_url"]
+# Variable.set('path', '.')
+# Variable.set('s3', 'https://ub-2021.s3-eu-west-1.amazonaws.com/data/')
+path: str = Variable.get("path")
+s3: str = Variable.get("s3")
 
 
 # ##########################################################################
@@ -59,18 +45,18 @@ predict_url: str = airflow_json["predict_url"]
 # ##########################################################################
 
 def _from_url_to_csv(file_url: str, file_name: str) -> None:
-    pd.read_csv(file_url).to_csv(os.path.join(local_path, f'{file_name}.csv'))
+    pd.read_csv(file_url).to_csv(os.path.join(path, f'{file_name}.csv'))
 
 
 def download_train_files() -> None:
     # we have to do it this way because train_url is a .txt url
     # (containing 2 .csv urls)
-    for i, _train_url in enumerate(get(train_url).text.split("\n")):
+    for i, _train_url in enumerate(get(f"{s3}/data.txt").text.split("\n")):
         _from_url_to_csv(_train_url, f'train{i+1}')
 
 
 def download_prediction_file() -> None:
-    _from_url_to_csv(predict_url, 'predict')
+    _from_url_to_csv(f"{s3}/predict.csv", 'predict')
 
 
 # ##########################################################################
@@ -105,8 +91,8 @@ def task_1():
 
 
 def task_2() -> None:
-    _train_1 = pd.read_csv(os.path.join(local_path, 'train1.csv'))
-    _train_2 = pd.read_csv(os.path.join(local_path, 'train2.csv'))
+    _train_1 = pd.read_csv(os.path.join(path, 'train1.csv'))
+    _train_2 = pd.read_csv(os.path.join(path, 'train2.csv'))
     train: pd.DataFrame = pd.concat([_train_1, _train_2])
 
     model_serialization(train)
@@ -118,9 +104,9 @@ def task_3() -> None:
 
 def task_4() -> None:
     clf = model_load()
-    _pred_df = pd.read_csv(os.path.join(local_path, 'predict.csv'))
+    _pred_df = pd.read_csv(os.path.join(path, 'predict.csv'))
     prediction_df = pd.DataFrame({"Prediction": clf.predict(_pred_df)})
-    prediction_df.to_csv(os.path.join(local_path, 'prediction.csv'))
+    prediction_df.to_csv(os.path.join(path, 'prediction.csv'))
 
     # we finally print the predictions
     print(prediction_df)
@@ -133,13 +119,13 @@ dag = DAG(
     description="Deployment of simple batch mode ML model.",
     default_args=default_args)
 
-t1 = PythonOperator(task_id="Task 1: download training .csv",
+t1 = PythonOperator(task_id="Task_1_download_training_csv",
                     python_callable=task_1, dag=dag)
-t2 = PythonOperator(task_id="Task 2: serialize model",
+t2 = PythonOperator(task_id="Task_2_serialize_model",
                     python_callable=task_2, dag=dag)
-t3 = PythonOperator(task_id="Task 3: download prediction .csv",
+t3 = PythonOperator(task_id="Task_3_download_prediction_csv",
                     python_callable=task_3, dag=dag)
-t4 = PythonOperator(task_id="Task 4: load model and print predictions",
+t4 = PythonOperator(task_id="Task_4_load_model_and_print_predictions",
                     python_callable=task_4, dag=dag)
 
 # First, the training file must be downloaded (t1);
