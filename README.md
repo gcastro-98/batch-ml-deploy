@@ -67,23 +67,20 @@ docker compose up --build
 
 ## Launching the scripts
 
-The Airflow server is running and can be accessed at: `http://localhost:8080``.
-Bear in mind this module must be placed at `./dags` to be found by airflow
-(after we ran it by `docker compose up`).
-<!-- Besides, to set up Airflow variables we can export 
-them using Environment Variables:
-```bash
-export AIRFLOW_VAR_LOCAL_PATH='.'
-export AIRFLOW_VAR_TRAIN_URL='https://ub-2021.s3-eu-west-1.amazonaws.com/data/data.txt'
-export AIRFLOW_VAR_PREDICT_URL='https://ub-2021.s3-eu-west-1.amazonaws.com/data/predict.csv'
-``` 
--->
-
-Besides, to set up Airflow variables (such as `local_path`, `train_url`) 
-can be easily done using the dedicated GUI (`Admin` -> `Variables`).
+The Airflow server is running and can be accessed at: `http://localhost:8080`.
+Bear in mind this module must be placed at `./dags` to be found by Airflow.
+Besides, to set up Airflow variables (_i.e._ `localpath`, `s3`) 
+can be easily done using the dedicated GUI (`Admin` -> `Variables`) or the
+Python corresponding class.
 
 This way, inside the container, the variable 'variables' will be found using:
 ```python
 from airflow.models import Variable
-train_url = Variable.get("train_url")
+s3: str = Variable.get("s3")
 ```
+
+## Results
+
+Below a screenshot of both the Airflow DAG and execution are shown:
+![Airflow DAG](img/dag.png)
+![Airflow execution](img/execution.png)

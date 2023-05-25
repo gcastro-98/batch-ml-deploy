@@ -8,7 +8,7 @@ Besides, to set up Airflow variables we can export them using the GUI.
 import os
 from datetime import datetime, timedelta
 import pandas as pd
-from requests import get
+import requests
 import pickle
 
 from sklearn.linear_model import LogisticRegression
@@ -23,20 +23,16 @@ RANDOM_STATE: int = 123
 default_args = {
     'owner': 'airflow',  # we use the default Airflow user (with same passwd!)
     'depends_on_past': False,
-    'start_date': datetime(2023, 5, 25),
+    'start_date': datetime.today(),
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
-    # remind the CRON fashion is: minute hour day month weekday
-    'schedule_interval': '0 20 * * 1',
-    # then, means every day and month
-    # whenever the day is 1/7 (Monday) at 20:00h (8pm).
 }
 
-# Variable.set('path', '.')
-# Variable.set('s3', 'https://ub-2021.s3-eu-west-1.amazonaws.com/data/')
-path: str = Variable.get("path")
+# Variable.set('localpath', '.')
+# Variable.set('s3', 'https://ub-2021.s3-eu-west-1.amazonaws.com/data')
+local_path: str = Variable.get("localpath")
 s3: str = Variable.get("s3")
 
 
@@ -45,14 +41,15 @@ s3: str = Variable.get("s3")
 # ##########################################################################
 
 def _from_url_to_csv(file_url: str, file_name: str) -> None:
-    pd.read_csv(file_url).to_csv(os.path.join(path, f'{file_name}.csv'))
+    pd.read_csv(file_url).to_csv(os.path.join(local_path, f'{file_name}.csv'))
 
 
 def download_train_files() -> None:
     # we have to do it this way because train_url is a .txt url
     # (containing 2 .csv urls)
-    for i, _train_url in enumerate(get(f"{s3}/data.txt").text.split("\n")):
-        _from_url_to_csv(_train_url, f'train{i+1}')
+    for i, _train_url in enumerate(requests.get(
+            f"{s3}/data.txt").text.split("\n"), start=1):
+        _from_url_to_csv(_train_url, f'train{i}')
 
 
 def download_prediction_file() -> None:
@@ -91,8 +88,8 @@ def task_1():
 
 
 def task_2() -> None:
-    _train_1 = pd.read_csv(os.path.join(path, 'train1.csv'))
-    _train_2 = pd.read_csv(os.path.join(path, 'train2.csv'))
+    _train_1 = pd.read_csv(os.path.join(local_path, 'train1.csv'))
+    _train_2 = pd.read_csv(os.path.join(local_path, 'train2.csv'))
     train: pd.DataFrame = pd.concat([_train_1, _train_2])
 
     model_serialization(train)
@@ -104,9 +101,9 @@ def task_3() -> None:
 
 def task_4() -> None:
     clf = model_load()
-    _pred_df = pd.read_csv(os.path.join(path, 'predict.csv'))
+    _pred_df = pd.read_csv(os.path.join(local_path, 'predict.csv'))
     prediction_df = pd.DataFrame({"Prediction": clf.predict(_pred_df)})
-    prediction_df.to_csv(os.path.join(path, 'prediction.csv'))
+    prediction_df.to_csv(os.path.join(local_path, 'prediction.csv'))
 
     # we finally print the predictions
     print(prediction_df)
@@ -117,7 +114,12 @@ def task_4() -> None:
 dag = DAG(
     "ml_batch_mode", catchup=False,
     description="Deployment of simple batch mode ML model.",
-    default_args=default_args)
+    default_args=default_args,
+    # remind the CRON fashion is: minute hour day month weekday
+    schedule_interval='0 20 * * 1',
+    # then, means every day and month
+    # whenever the day is 1/7 (Monday) at 20:00h (8pm).
+    )
 
 t1 = PythonOperator(task_id="Task_1_download_training_csv",
                     python_callable=task_1, dag=dag)
